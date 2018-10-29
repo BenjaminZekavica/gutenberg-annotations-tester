@@ -1,73 +1,11 @@
+import { buildPositionalTree } from '../functions/xpath.js';
+
 const { Component } = wp.element;
 const { withSelect, withDispatch } = wp.data;
 const { PanelBody, Button } = wp.components;
 const { compose } = wp.compose;
 
 const ANNOTATION_SOURCE = 'annotations-tester';
-
-const getXPathNodeIndex = ( node ) => {
-	let typeIndex = 1; // Default index.
-
-	if ( ! node.parentNode || ! node.parentNode.hasChildNodes() ) {
-		return typeIndex;
-	}
-
-	const childNodes = node.parentNode.childNodes;
-
-	for ( let i = 0; i < childNodes.length; i++ ) {
-		if ( childNodes[ i ] === node ) {
-			break;
-		}
-
-		if ( childNodes[ i ].nodeType !== node.nodeType ) {
-			continue;
-		}
-
-		switch ( childNodes[ i ].nodeType ) {
-			case Node.ELEMENT_NODE:
-				typeIndex += childNodes[ i ].tagName === node.tagName ? 1 : 0;
-				break;
-
-			case Node.TEXT_NODE:
-			default: // e.g., comments, processing instructions.
-				typeIndex += 1;
-				break;
-		}
-	}
-
-	return typeIndex;
-};
-
-const getTagName = ( element ) => {
-	return element.tagName.toLowerCase();
-};
-
-const getXPathSelector = ( root, node ) => {
-	const selectors = [];
-
-	while ( node.parentNode ) {
-		if ( node === root ) {
-			break;
-		}
-
-		switch ( node.nodeType ) {
-			case Node.ELEMENT_NODE:
-				selectors.unshift( getTagName( node ) + '[' + getXPathNodeIndex( node ) + ']' );
-				break;
-
-			case Node.TEXT_NODE:
-				selectors.unshift( 'text()[' + getXPathNodeIndex( node ) + ']' );
-				break;
-
-			default: // e.g., comments, processing instructions.
-				break; // Do not include.
-		}
-
-		node = node.parentNode;
-	}
-
-	return selectors.join( '/' );
-};
 
 const getClosestElement = ( node ) => {
 	switch ( node.nodeType ) {
@@ -91,19 +29,99 @@ const getClosestEditable = ( node ) => {
 		null;
 };
 
+function findNodeIndex( node ) {
+	let { type } = node;
+
+	if ( typeof node.text === 'string' ) {
+		type = 'text';
+	}
+
+	const children = node.parent.children;
+
+	let count = 0;
+	let endCount = -100;
+
+	children.forEach( ( child ) => {
+		if (
+			child.type === type ||
+			( type === 'text' && typeof child.text === 'string' )
+		) {
+			if ( child === node ) {
+				endCount = count;
+			}
+
+			count++;
+		}
+	} );
+
+	// Add 1 because XPath indexes start at 1.
+	return endCount + 1;
+}
+
+function findNode( pos, children = [] ) {
+	let foundNode = false;
+	let foundOffset = 0;
+
+	children.forEach( ( child ) => {
+		if ( pos >= child.pos ) {
+			foundNode = child;
+			foundOffset = pos - child.pos;
+		}
+	} );
+
+	return { node: foundNode, offset: foundOffset };
+}
+
+function findXPathFromPos( pos, tree ) {
+	const { node, offset } = findNode( pos, tree.children );
+	const index = findNodeIndex( node );
+
+	if ( typeof node.text === 'string' ) {
+		return {
+			xpath: 'text()[' + index + ']',
+			offset,
+		};
+	}
+
+	const currentNodePath = node.type + '[' + index + ']';
+	const childPath = findXPathFromPos( pos, node );
+
+	return {
+		xpath: currentNodePath + '/' + childPath.xpath,
+		offset: childPath.offset,
+	};
+}
+
+function removeAnnotations( record ) {
+	return wp.richText.removeFormat( record, 'core/annotation', 0, record.text.length );
+}
+
 export function getAnnotationFromSelection( block ) {
 	const selection = window.getSelection();
 	const range = selection.rangeCount ? selection.getRangeAt( 0 ) : null;
 	const editable = range ? getClosestEditable( range.startContainer ) : null;
 
-	console.log( editable );
+	const record = wp.richText.create( { element: editable, range } );
+	const { start, end } = record;
+
+	const strippedRecord = removeAnnotations( record );
+
+	const tree = buildPositionalTree( strippedRecord );
+
+	const startPath = findXPathFromPos( start, tree );
+	const endPath = findXPathFromPos( end, tree );
+
+	const startXPath = startPath.xpath;
+	const endXPath = endPath.xpath;
+	const startOffset = startPath.offset;
+	const endOffset = endPath.offset;
 
 	return {
 		block,
-		startXPath: getXPathSelector( editable, range.startContainer ),
-		startOffset: range.startOffset,
-		endXPath: getXPathSelector( editable, range.endContainer ),
-		endOffset: range.endOffset,
+		startXPath,
+		startOffset,
+		endXPath,
+		endOffset,
 		source: ANNOTATION_SOURCE,
 	};
 }
