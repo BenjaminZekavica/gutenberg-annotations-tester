@@ -96,7 +96,7 @@ function removeAnnotations( record ) {
 	return wp.richText.removeFormat( record, 'core/annotation', 0, record.text.length );
 }
 
-export function getAnnotationFromSelection( block ) {
+export function getAnnotationFromSelection( blockClientId ) {
 	const selection = window.getSelection();
 	const range = selection.rangeCount ? selection.getRangeAt( 0 ) : null;
 	const editable = range ? getClosestEditable( range.startContainer ) : null;
@@ -117,11 +117,13 @@ export function getAnnotationFromSelection( block ) {
 	const endOffset = endPath.offset;
 
 	return {
-		block,
-		startXPath,
-		startOffset,
-		endXPath,
-		endOffset,
+		blockClientId,
+		range: {
+			startXPath,
+			startOffset,
+			endXPath,
+			endOffset,
+		},
 		source: ANNOTATION_SOURCE,
 	};
 }
@@ -162,8 +164,8 @@ class Controls extends Component {
 			const current = blockOrder[ i ];
 
 			const annotation = {
-				block: current,
-				isBlockAnnotation: true,
+				blockClientId: current,
+				scope: 'block',
 				source: ANNOTATION_SOURCE,
 			};
 
