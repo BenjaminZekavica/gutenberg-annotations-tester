@@ -165,7 +165,7 @@ class Controls extends Component {
 
 			const annotation = {
 				blockClientId: current,
-				scope: 'block',
+				selector: 'block',
 				source: ANNOTATION_SOURCE,
 			};
 
